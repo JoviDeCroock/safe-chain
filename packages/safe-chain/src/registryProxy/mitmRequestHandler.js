@@ -233,6 +233,14 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
         /** @type {Buffer} */
         const originalBuffer = Buffer.concat(chunks);
 
+        // HEAD and other bodiless responses can retain encoding headers, but
+        // there is no payload to decompress or filter.
+        if (originalBuffer.byteLength === 0) {
+          res.writeHead(statusCode, headers);
+          res.end(originalBuffer);
+          return;
+        }
+
         try {
           let decodedBuffer = originalBuffer;
 
