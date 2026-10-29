@@ -164,6 +164,19 @@ describe("npmInterceptor minimum package age", async () => {
     );
   });
 
+  it("drops conditional headers so a cached document is never revalidated unfiltered", async () => {
+    const url = "https://registry.npmjs.org/lodash";
+    const requestHandler = await npmInterceptorForUrl(url).handleRequest(url);
+
+    const headers = requestHandler.modifyRequestHeaders({
+      accept: "application/vnd.npm.install-v1+json",
+      "if-none-match": 'W/"abbreviated"',
+      "if-modified-since": "Tue, 27 Oct 2026 10:00:00 GMT",
+    });
+
+    assert.deepEqual(headers, { accept: "application/vnd.npm.install-v1+json" });
+  });
+
   it("streams package info responses last modified before the cutoff", async () => {
     const url = "https://registry.npmjs.org/lodash";
     const requestHandler = await npmInterceptorForUrl(url).handleRequest(url);

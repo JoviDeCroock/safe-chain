@@ -16,6 +16,9 @@ describe("fetchFullPackument", async () => {
   mock.module("https", {
     defaultExport: {
       get: (url, options, callback) => {
+        if (response === "throw") {
+          throw new TypeError("Invalid URL");
+        }
         const requestListeners = {};
         requests.push({ url, options });
         setImmediate(() => {
@@ -134,5 +137,14 @@ describe("fetchFullPackument", async () => {
       (err) => err instanceof FailClosedError && /timed out after 5 ms/.test(err.message)
     );
     assert.strictEqual(requests[0].timeoutMs, 5);
+  });
+
+  it("fails closed when the request cannot be created", async () => {
+    response = "throw";
+
+    await assert.rejects(
+      fetchFullPackument("https://registry.npmjs.org/pkg", {}),
+      (err) => err instanceof FailClosedError && /Invalid URL/.test(err.message)
+    );
   });
 });

@@ -22,6 +22,16 @@ const knownJsRegistries = [
 ];
 
 /**
+ * @param {NodeJS.Dict<string | string[]>} headers
+ * @returns {NodeJS.Dict<string | string[]>}
+ */
+function stripConditionalHeaders(headers) {
+  delete headers["if-none-match"];
+  delete headers["if-modified-since"];
+  return headers;
+}
+
+/**
  * @param {string} url
  * @returns {boolean}
  */
@@ -84,6 +94,10 @@ function buildNpmInterceptor(registry) {
       }
 
       const cutoff = getMinimumPackageAgeCutoff();
+      // A 304 carries no body to filter, so the client would reuse whatever it
+      // cached, possibly a document fetched without safe-chain. Always ask for
+      // the document itself.
+      reqContext.modifyRequestHeaders(stripConditionalHeaders);
       reqContext.bufferResponseIf((response) =>
         needsMetadataFiltering(response, cutoff)
       );

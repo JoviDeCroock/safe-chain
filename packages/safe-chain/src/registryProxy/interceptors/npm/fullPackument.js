@@ -76,5 +76,12 @@ export function fetchFullPackument(
     request.setTimeout(timeoutMs, () =>
       request.destroy(new Error(`timed out after ${timeoutMs} ms`))
     );
+  }).catch((err) => {
+    // https.get throws synchronously on an invalid url or options.
+    if (err instanceof FailClosedError) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    throw new FailClosedError(`Full package metadata request failed: ${message}`);
   });
 }
