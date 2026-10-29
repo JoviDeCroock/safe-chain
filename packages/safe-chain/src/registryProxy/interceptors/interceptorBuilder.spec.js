@@ -16,7 +16,7 @@ describe("interceptorBuilder", () => {
     it("is false when nothing modifies the body", async () => {
       const handler = await handlerFor(() => {});
 
-      assert.strictEqual(handler.shouldBufferResponse({}), false);
+      assert.strictEqual(handler.shouldBufferResponse({ statusCode: 200, headers: {} }), false);
     });
 
     it("is true when the body is modified and no predicate is set", async () => {
@@ -24,17 +24,23 @@ describe("interceptorBuilder", () => {
         context.modifyBody((body) => body);
       });
 
-      assert.strictEqual(handler.shouldBufferResponse({}), true);
+      assert.strictEqual(handler.shouldBufferResponse({ statusCode: 200, headers: {} }), true);
     });
 
-    it("follows the bufferResponseIf predicate for the response headers", async () => {
+    it("follows the bufferResponseIf predicate for the upstream response", async () => {
       const handler = await handlerFor((context) => {
         context.modifyBody((body) => body);
-        context.bufferResponseIf((headers) => headers["x-buffer"] === "yes");
+        context.bufferResponseIf(
+          ({ statusCode, headers }) =>
+            statusCode === 200 && headers["x-buffer"] === "yes"
+        );
       });
 
-      assert.strictEqual(handler.shouldBufferResponse({ "x-buffer": "yes" }), true);
-      assert.strictEqual(handler.shouldBufferResponse({ "x-buffer": "no" }), false);
+      const shouldBuffer = (statusCode, buffer) =>
+        handler.shouldBufferResponse({ statusCode, headers: { "x-buffer": buffer } });
+      assert.strictEqual(shouldBuffer(200, "yes"), true);
+      assert.strictEqual(shouldBuffer(200, "no"), false);
+      assert.strictEqual(shouldBuffer(304, "yes"), false);
     });
   });
 
@@ -49,22 +55,22 @@ describe("interceptorBuilder", () => {
       assert.strictEqual(result.toString(), "async result");
     });
 
-    it("passes the forwarded request headers to body modifications", async () => {
-      let seenRequestHeaders;
+    it("passes the forwarded request to body modifications", async () => {
+      let seenRequest;
       const handler = await handlerFor((context) => {
-        context.modifyBody((body, _headers, requestHeaders) => {
-          seenRequestHeaders = requestHeaders;
+        context.modifyBody((body, _headers, request) => {
+          seenRequest = request;
           return body;
         });
       });
+      const request = {
+        url: "https://registry.npmjs.org/pkg",
+        headers: { authorization: "Bearer token" },
+      };
 
-      await handler.modifyBody(Buffer.from("original"), {}, {
-        authorization: "Bearer token",
-      });
+      await handler.modifyBody(Buffer.from("original"), {}, request);
 
-      assert.deepStrictEqual(seenRequestHeaders, {
-        authorization: "Bearer token",
-      });
+      assert.deepStrictEqual(seenRequest, request);
     });
   });
 });

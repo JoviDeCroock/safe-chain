@@ -235,7 +235,11 @@ describe("mitmRequestHandler", async () => {
   async function interceptWithEncoding(
     encoding,
     modifyBody,
-    { shouldBufferResponse = () => true, requestHeaders = {} } = {}
+    {
+      shouldBufferResponse = () => true,
+      requestHeaders = {},
+      connectUrl = "registry.npmjs.org:443",
+    } = {}
   ) {
     upstreamEncoding = encoding;
     upstreamBody = Buffer.from('{"name":"pkg"}');
@@ -246,15 +250,15 @@ describe("mitmRequestHandler", async () => {
         modifyRequestHeaders: (headers) => headers,
         modifiesResponse: () => true,
         shouldBufferResponse,
-        modifyBody: (body, headers, forwardedRequestHeaders) => {
+        modifyBody: (body, headers, request) => {
           seenByInterceptor = body;
-          return modifyBody(body, headers, forwardedRequestHeaders);
+          return modifyBody(body, headers, request);
         },
       }),
     };
 
     mitmConnect(
-      { url: "registry.npmjs.org:443" },
+      { url: connectUrl },
       { on: () => {}, write: () => {}, writable: true, end: () => {} },
       interceptor
     );
@@ -335,12 +339,25 @@ describe("mitmRequestHandler", async () => {
     assert.deepEqual(sent.body, zlib.gzipSync(Buffer.from('{"name":"pkg"}')));
   });
 
-  it("passes the forwarded request headers to the interceptor", async () => {
-    let seenRequestHeaders;
+  it("gives the buffering decision the upstream status and headers", async () => {
+    let seenResponse;
+    await interceptWithEncoding("gzip", (body) => body, {
+      shouldBufferResponse: (response) => {
+        seenResponse = response;
+        return true;
+      },
+    });
+
+    assert.equal(seenResponse.statusCode, 200);
+    assert.equal(seenResponse.headers["content-encoding"], "gzip");
+  });
+
+  it("passes the request as forwarded upstream to the interceptor", async () => {
+    let seenRequest;
     await interceptWithEncoding(
       "gzip",
-      (body, _headers, requestHeaders) => {
-        seenRequestHeaders = requestHeaders;
+      (body, _headers, request) => {
+        seenRequest = request;
         return body;
       },
       {
@@ -351,6 +368,23 @@ describe("mitmRequestHandler", async () => {
       }
     );
 
-    assert.deepEqual(seenRequestHeaders, { authorization: "Bearer token" });
+    assert.deepEqual(seenRequest, {
+      url: "https://registry.npmjs.org/pkg",
+      headers: { authorization: "Bearer token", "accept-encoding": "identity" },
+    });
+  });
+
+  it("keeps a non-default upstream port in the forwarded request url", async () => {
+    let seenRequest;
+    await interceptWithEncoding(
+      "gzip",
+      (body, _headers, request) => {
+        seenRequest = request;
+        return body;
+      },
+      { connectUrl: "registry.internal:8443" }
+    );
+
+    assert.equal(seenRequest.url, "https://registry.internal:8443/pkg");
   });
 });

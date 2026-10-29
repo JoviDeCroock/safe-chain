@@ -200,6 +200,9 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
     method: req.method,
     headers: { ...requestHeaders },
   };
+  const upstreamUrl = `https://${hostname}${
+    options.port === 443 || options.port === "443" ? "" : `:${options.port}`
+  }${req.url}`;
 
   const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
   if (httpsProxy) {
@@ -228,7 +231,7 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
 
     const { statusCode, headers } = proxyRes;
 
-    if (requestHandler.shouldBufferResponse(headers)) {
+    if (requestHandler.shouldBufferResponse({ statusCode, headers })) {
       /** @type {Array<any>} */
       let chunks = [];
 
@@ -247,7 +250,7 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
           const modifiedBuffer = await requestHandler.modifyBody(
             decodedBuffer,
             headers,
-            { ...requestHeaders }
+            { url: upstreamUrl, headers: { ...requestHeaders } }
           );
 
           if (modifiedBuffer === decodedBuffer) {

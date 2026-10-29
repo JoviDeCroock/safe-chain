@@ -13,7 +13,7 @@ import { EventEmitter } from "events";
  * @property {(packageName: string, version: string, message: string) => void} blockMinimumAgeRequest
  * @property {(modificationFunc: (headers: NodeJS.Dict<string | string[]>) => NodeJS.Dict<string | string[]>) => void} modifyRequestHeaders
  * @property {(modificationFunc: ModifyBodyFunc) => void} modifyBody
- * @property {(predicate: (responseHeaders: NodeJS.Dict<string | string[]>) => boolean) => void} bufferResponseIf
+ * @property {(predicate: (response: UpstreamResponse) => boolean) => void} bufferResponseIf
  * @property {(response: {statusCode: number, headers: NodeJS.Dict<string>, body: Buffer}) => void} setSyntheticResponse
  * @property {() => RequestInterceptionHandler} build
  *
@@ -23,14 +23,21 @@ import { EventEmitter } from "events";
  * @property {{statusCode: number, headers: NodeJS.Dict<string>, body: Buffer} | undefined} syntheticResponse
  * @property {(headers: NodeJS.Dict<string | string[]> | undefined) => NodeJS.Dict<string | string[]> | undefined} modifyRequestHeaders
  * @property {() => boolean} modifiesResponse
- * @property {(responseHeaders: NodeJS.Dict<string | string[]>) => boolean} shouldBufferResponse
- * @property {(body: Buffer, headers: NodeJS.Dict<string | string[]> | undefined, requestHeaders?: NodeJS.Dict<string | string[]>) => Promise<Buffer>} modifyBody
+ * @property {(response: UpstreamResponse) => boolean} shouldBufferResponse
+ * @property {(body: Buffer, headers: NodeJS.Dict<string | string[]> | undefined, request?: UpstreamRequest) => Promise<Buffer>} modifyBody
+ *
+ * @typedef {Object} UpstreamResponse
+ * @property {number} statusCode
+ * @property {NodeJS.Dict<string | string[]>} headers
+ *
+ * @typedef {Object} UpstreamRequest The request as it was forwarded upstream.
+ * @property {string} url Including a non-default port, unlike targetUrl.
+ * @property {NodeJS.Dict<string | string[]>} headers After modifyRequestHeaders ran.
  *
  * @callback ModifyBodyFunc
  * @param {Buffer} body
  * @param {NodeJS.Dict<string | string[]> | undefined} headers Response headers.
- * @param {NodeJS.Dict<string | string[]> | undefined} requestHeaders The request
- *   headers as forwarded upstream, after modifyRequestHeaders ran.
+ * @param {UpstreamRequest | undefined} request
  * @returns {Buffer | Promise<Buffer>}
  *
  * @typedef {Object} MalwareBlockedEvent
@@ -95,7 +102,7 @@ function createRequestContext(targetUrl, eventEmitter) {
   let reqheaderModificationFuncs = [];
   /** @type {Array<ModifyBodyFunc>} */
   let modifyBodyFuncs = [];
-  /** @type {Array<(responseHeaders: NodeJS.Dict<string | string[]>) => boolean>} */
+  /** @type {Array<(response: UpstreamResponse) => boolean>} */
   let bufferPredicates = [];
 
   /**
@@ -161,14 +168,14 @@ function createRequestContext(targetUrl, eventEmitter) {
     /**
      * @param {Buffer} body
      * @param {NodeJS.Dict<string | string[]> | undefined} headers
-     * @param {NodeJS.Dict<string | string[]>} [requestHeaders]
+     * @param {UpstreamRequest} [request]
      * @returns {Promise<Buffer>}
      */
-    async function modifyBody(body, headers, requestHeaders) {
+    async function modifyBody(body, headers, request) {
       let modifiedBody = body;
 
       for (var func of modifyBodyFuncs) {
-        modifiedBody = await func(body, headers, requestHeaders);
+        modifiedBody = await func(body, headers, request);
       }
 
       return modifiedBody;
@@ -176,15 +183,15 @@ function createRequestContext(targetUrl, eventEmitter) {
 
     /**
      * Whether the proxy should buffer the response body for modifyBody. An
-     * interceptor can rule this out from the response headers alone, so the
+     * interceptor can rule this out from the status and headers alone, so the
      * response streams through instead of being buffered and decoded.
-     * @param {NodeJS.Dict<string | string[]>} responseHeaders
+     * @param {UpstreamResponse} response
      * @returns {boolean}
      */
-    function shouldBufferResponse(responseHeaders) {
+    function shouldBufferResponse(response) {
       return (
         modifyBodyFuncs.length > 0 &&
-        bufferPredicates.every((predicate) => predicate(responseHeaders))
+        bufferPredicates.every((predicate) => predicate(response))
       );
     }
 
