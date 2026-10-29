@@ -1,9 +1,14 @@
 import { getNpmCustomRegistries, skipMinimumPackageAge } from "../../../config/settings.js";
 import { isMalwarePackage } from "../../../scanning/audit/index.js";
 import { interceptRequests } from "../interceptorBuilder.js";
-import { isPackageInfoUrl } from "./modifyNpmInfo.js";
+import {
+  isPackageInfoUrl,
+  modifyNpmInfoRequestHeaders,
+  modifyNpmInfoResponse,
+} from "./modifyNpmInfo.js";
 import {
   filterPackageMetadata,
+  isSuccessStatus,
   needsMetadataFiltering,
 } from "./filterPackageMetadata.js";
 import { parseNpmPackageUrl } from "./parseNpmPackageUrl.js";
@@ -15,6 +20,14 @@ const knownJsRegistries = [
   "registry.yarnpkg.com",
   "registry.npmjs.com",
 ];
+
+/**
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isPublicNpmRegistry(url) {
+  return knownJsRegistries.includes(new URL(url).hostname);
+}
 
 /**
  * @param {string} url
@@ -57,19 +70,25 @@ function buildNpmInterceptor(registry) {
 
     if (isPackageInfoUrl(reqContext.targetUrl)) {
       const checker = await openMinimumPackageAgeChecker();
+
+      if (!isPublicNpmRegistry(reqContext.targetUrl)) {
+        // A custom registry may merge upstreams or proxy lazily, so its
+        // abbreviated documents and Last-Modified are not trusted to bound
+        // publish times. Always request and filter the full document.
+        reqContext.modifyRequestHeaders(modifyNpmInfoRequestHeaders);
+        reqContext.bufferResponseIf(({ statusCode }) => isSuccessStatus(statusCode));
+        reqContext.modifyBody((body, headers) =>
+          modifyNpmInfoResponse(body, headers, checker)
+        );
+        return;
+      }
+
       const cutoff = getMinimumPackageAgeCutoff();
-      reqContext.bufferResponseIf((headers) =>
-        needsMetadataFiltering(headers, cutoff)
+      reqContext.bufferResponseIf((response) =>
+        needsMetadataFiltering(response, cutoff)
       );
-      reqContext.modifyBody((body, headers, requestHeaders) =>
-        filterPackageMetadata({
-          targetUrl: reqContext.targetUrl,
-          body,
-          headers,
-          requestHeaders,
-          checker,
-          cutoff,
-        })
+      reqContext.modifyBody((body, headers, request) =>
+        filterPackageMetadata({ body, headers, request, checker, cutoff })
       );
       return;
     }

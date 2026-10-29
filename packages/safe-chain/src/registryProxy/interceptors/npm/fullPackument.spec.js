@@ -19,6 +19,9 @@ describe("fetchFullPackument", async () => {
         const requestListeners = {};
         requests.push({ url, options });
         setImmediate(() => {
+          if (response === "hang") {
+            return;
+          }
           if (response instanceof Error) {
             requestListeners["error"]?.(response);
             return;
@@ -38,6 +41,13 @@ describe("fetchFullPackument", async () => {
           on: (event, handler) => {
             requestListeners[event] = handler;
           },
+          setTimeout: (timeoutMs, onTimeout) => {
+            requests.at(-1).timeoutMs = timeoutMs;
+            if (response === "hang") {
+              setImmediate(onTimeout);
+            }
+          },
+          destroy: (err) => requestListeners["error"]?.(err),
         };
       },
     },
@@ -114,5 +124,15 @@ describe("fetchFullPackument", async () => {
       fetchFullPackument("https://registry.npmjs.org/pkg", {}),
       FailClosedError
     );
+  });
+
+  it("fails closed when the registry does not answer in time", async () => {
+    response = "hang";
+
+    await assert.rejects(
+      fetchFullPackument("https://registry.npmjs.org/pkg", {}, 5),
+      (err) => err instanceof FailClosedError && /timed out after 5 ms/.test(err.message)
+    );
+    assert.strictEqual(requests[0].timeoutMs, 5);
   });
 });

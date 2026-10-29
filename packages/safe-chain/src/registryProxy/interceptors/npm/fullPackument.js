@@ -3,16 +3,23 @@ import { HttpsProxyAgent } from "https-proxy-agent";
 import { decodeBody } from "../../decodeBody.js";
 import { FailClosedError } from "../../failClosedError.js";
 
+const FULL_PACKUMENT_TIMEOUT_MS = 60_000;
+
 /**
  * Fetches the full package document (with per-version publish times) for a
  * metadata URL the client requested in abbreviated form. The client's own
  * request headers are reused, so registry authentication carries over.
  *
- * @param {string} targetUrl
+ * @param {string} url The upstream URL, including a non-default port.
  * @param {NodeJS.Dict<string | string[]> | undefined} requestHeaders
+ * @param {number} [timeoutMs]
  * @returns {Promise<Buffer>}
  */
-export function fetchFullPackument(targetUrl, requestHeaders) {
+export function fetchFullPackument(
+  url,
+  requestHeaders,
+  timeoutMs = FULL_PACKUMENT_TIMEOUT_MS
+) {
   /** @type {NodeJS.Dict<string | string[]>} */
   const headers = {
     ...requestHeaders,
@@ -32,7 +39,7 @@ export function fetchFullPackument(targetUrl, requestHeaders) {
   }
 
   return new Promise((resolve, reject) => {
-    const request = https.get(targetUrl, options, (response) => {
+    const request = https.get(url, options, (response) => {
       /** @type {Buffer[]} */
       const chunks = [];
       response.on("data", (chunk) => chunks.push(chunk));
@@ -65,6 +72,9 @@ export function fetchFullPackument(targetUrl, requestHeaders) {
 
     request.on("error", (err) =>
       reject(new FailClosedError(`Full package metadata request failed: ${err.message}`))
+    );
+    request.setTimeout(timeoutMs, () =>
+      request.destroy(new Error(`timed out after ${timeoutMs} ms`))
     );
   });
 }

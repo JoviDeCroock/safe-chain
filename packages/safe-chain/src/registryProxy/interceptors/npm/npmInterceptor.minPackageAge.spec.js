@@ -7,6 +7,7 @@ describe("npmInterceptor minimum package age", async () => {
   let minimumPackageAgeExclusionsSetting = [];
   let newlyReleasedPackages = new Set();
   let safePatchedPackages = new Set();
+  let customRegistries = [];
 
   mock.module("../../../config/settings.js", {
     namedExports: {
@@ -14,7 +15,7 @@ describe("npmInterceptor minimum package age", async () => {
       ECOSYSTEM_PY: "py",
       getMinimumPackageAgeHours: () => minimumPackageAgeSettings,
       skipMinimumPackageAge: () => skipMinimumPackageAgeSetting,
-      getNpmCustomRegistries: () => [],
+      getNpmCustomRegistries: () => customRegistries,
       getMinimumPackageAgeExclusions: () => minimumPackageAgeExclusionsSetting,
       getEcoSystem: () => "js",
     },
@@ -169,14 +170,47 @@ describe("npmInterceptor minimum package age", async () => {
     const lastModified = (hoursAgo) =>
       new Date(Date.now() - hoursAgo * 3600 * 1000).toUTCString();
 
-    assert.equal(
-      requestHandler.shouldBufferResponse({ "last-modified": lastModified(72) }),
-      false
+    const shouldBuffer = (statusCode, hoursAgo) =>
+      requestHandler.shouldBufferResponse({
+        statusCode,
+        headers: { "last-modified": lastModified(hoursAgo) },
+      });
+
+    assert.equal(shouldBuffer(200, 72), false);
+    assert.equal(shouldBuffer(200, 1), true);
+    assert.equal(shouldBuffer(304, 1), false);
+  });
+
+  it("requests and filters the full document from custom registries", async () => {
+    minimumPackageAgeSettings = 5;
+    customRegistries = ["npm.corp.example"];
+    const url = "https://npm.corp.example/lodash";
+    const requestHandler = await npmInterceptorForUrl(url).handleRequest(url);
+    const oldLastModified = new Date(Date.now() - 72 * 3600 * 1000).toUTCString();
+
+    const headers = requestHandler.modifyRequestHeaders({
+      accept: "application/vnd.npm.install-v1+json",
+    });
+    const shouldBuffer = requestHandler.shouldBufferResponse({
+      statusCode: 200,
+      headers: { "last-modified": oldLastModified },
+    });
+    const body = await requestHandler.modifyBody(
+      Buffer.from(
+        JSON.stringify({
+          name: "lodash",
+          ["dist-tags"]: { latest: "2.0.0" },
+          versions: { ["1.0.0"]: {}, ["2.0.0"]: {} },
+          time: { ["1.0.0"]: getDate(-100), ["2.0.0"]: getDate(-1) },
+        })
+      ),
+      { ["content-type"]: "application/json" }
     );
-    assert.equal(
-      requestHandler.shouldBufferResponse({ "last-modified": lastModified(1) }),
-      true
-    );
+    customRegistries = [];
+
+    assert.equal(headers.accept, "application/json");
+    assert.equal(shouldBuffer, true);
+    assert.deepEqual(Object.keys(JSON.parse(body).versions), ["1.0.0"]);
   });
 
   it("Should remove packages older than the treshold", async () => {
@@ -297,8 +331,7 @@ describe("npmInterceptor minimum package age", async () => {
         },
         versions: {
           ["1.0.0"]: {},
-          ["2.0.0"]: {},
-          ["3.0.0"]: {},
+          ["2.0.0-alpha"]: {},
         },
         time: {
           created: getDate(-365 * 24),
