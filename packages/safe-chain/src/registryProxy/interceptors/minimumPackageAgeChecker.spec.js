@@ -193,14 +193,15 @@ describe("minimumPackageAgeChecker", async () => {
     });
 
     it("reads the age threshold once per checker, not once per version", () => {
-      const checker = makeChecker();
       minimumPackageAgeHoursReads = 0;
+      const checker = makeChecker();
+      assert.strictEqual(minimumPackageAgeHoursReads, 0);
 
       for (let i = 0; i < 100; i++) {
         checker.isTooNewByReleaseDate("lodash", `1.0.${i}`, hoursAgo(i));
       }
 
-      assert.strictEqual(minimumPackageAgeHoursReads, 0);
+      assert.strictEqual(minimumPackageAgeHoursReads, 1);
     });
 
     it("respects a custom minimumPackageAgeHours threshold", () => {
