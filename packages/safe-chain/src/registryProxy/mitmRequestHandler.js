@@ -202,7 +202,7 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
   };
   const upstreamUrl = `https://${hostname}${
     options.port === 443 || options.port === "443" ? "" : `:${options.port}`
-  }${req.url}`;
+  }${getRequestPathAndQuery(req.url ?? "")}`;
 
   const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
   if (httpsProxy) {

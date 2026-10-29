@@ -239,6 +239,7 @@ describe("mitmRequestHandler", async () => {
       shouldBufferResponse = () => true,
       requestHeaders = {},
       connectUrl = "registry.npmjs.org:443",
+      requestUrl = "/pkg",
     } = {}
   ) {
     upstreamEncoding = encoding;
@@ -277,7 +278,7 @@ describe("mitmRequestHandler", async () => {
       };
       capturedHandler(
         {
-          url: "/pkg",
+          url: requestUrl,
           headers: requestHeaders,
           method: "GET",
           on: (event, handler) => event === "end" && handler(),
@@ -386,5 +387,20 @@ describe("mitmRequestHandler", async () => {
     );
 
     assert.equal(seenRequest.url, "https://registry.internal:8443/pkg");
+  });
+
+  it("normalizes an absolute-form request target in the forwarded request url", async () => {
+    // npm 10.0 to 10.4 send absolute URLs inside the tunnel.
+    let seenRequest;
+    await interceptWithEncoding(
+      "gzip",
+      (body, _headers, request) => {
+        seenRequest = request;
+        return body;
+      },
+      { requestUrl: "https://registry.npmjs.org/pkg?write=true" }
+    );
+
+    assert.equal(seenRequest.url, "https://registry.npmjs.org/pkg?write=true");
   });
 });
