@@ -179,16 +179,16 @@ function forwardRequest(req, hostname, port, res, requestHandler) {
  */
 function createProxyRequest(hostname, port, req, res, requestHandler) {
   /** @type {NodeJS.Dict<string | string[]> | undefined} */
-  let headers = { ...req.headers };
+  let requestHeaders = { ...req.headers };
   // Remove the host header from the incoming request before forwarding.
   // Node's http module sets the correct host header for the target hostname automatically.
-  if (headers.host) {
-    delete headers.host;
+  if (requestHeaders.host) {
+    delete requestHeaders.host;
   }
-  headers = requestHandler.modifyRequestHeaders(headers);
-  if (headers && requestHandler.modifiesResponse()) {
-    headers["accept-encoding"] = supportedAcceptEncoding(
-      headers["accept-encoding"]
+  requestHeaders = requestHandler.modifyRequestHeaders(requestHeaders);
+  if (requestHeaders && requestHandler.modifiesResponse()) {
+    requestHeaders["accept-encoding"] = supportedAcceptEncoding(
+      requestHeaders["accept-encoding"]
     );
   }
 
@@ -198,7 +198,7 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
     port: port || 443,
     path: req.url,
     method: req.method,
-    headers: { ...headers },
+    headers: { ...requestHeaders },
   };
 
   const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
@@ -228,7 +228,7 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
 
     const { statusCode, headers } = proxyRes;
 
-    if (requestHandler.modifiesResponse()) {
+    if (requestHandler.shouldBufferResponse(headers)) {
       /** @type {Array<any>} */
       let chunks = [];
 
@@ -244,7 +244,11 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
             proxyRes.headers["content-encoding"]
           );
 
-          const modifiedBuffer = requestHandler.modifyBody(decodedBuffer, headers);
+          const modifiedBuffer = await requestHandler.modifyBody(
+            decodedBuffer,
+            headers,
+            { ...requestHeaders }
+          );
 
           if (modifiedBuffer === decodedBuffer) {
             // The interceptor left the body unchanged, so forward the upstream

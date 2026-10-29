@@ -210,7 +210,7 @@ describe("npmInterceptor minimum package age", async () => {
 
     const interceptor = npmInterceptorForUrl(packageUrl);
     const requestHandler = await interceptor.handleRequest(packageUrl);
-    const result = requestHandler.modifyBody(originalBuffer, {
+    const result = await requestHandler.modifyBody(originalBuffer, {
       ["content-type"]: "application/json",
     });
 
@@ -771,7 +771,7 @@ describe("npmInterceptor minimum package age", async () => {
     const requestHandler = await interceptor.handleRequest(url);
 
     if (requestHandler.modifiesResponse()) {
-      const modifiedBuffer = requestHandler.modifyBody(Buffer.from(body), {
+      const modifiedBuffer = await requestHandler.modifyBody(Buffer.from(body), {
         ["content-type"]: "application/json",
       });
       return modifiedBuffer.toString("utf8");

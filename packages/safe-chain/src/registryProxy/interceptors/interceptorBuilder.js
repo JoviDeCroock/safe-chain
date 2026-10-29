@@ -12,7 +12,8 @@ import { EventEmitter } from "events";
  * @property {(packageName: string | undefined, version: string | undefined) => void} blockMalware
  * @property {(packageName: string, version: string, message: string) => void} blockMinimumAgeRequest
  * @property {(modificationFunc: (headers: NodeJS.Dict<string | string[]>) => NodeJS.Dict<string | string[]>) => void} modifyRequestHeaders
- * @property {(modificationFunc: (body: Buffer, headers: NodeJS.Dict<string | string[]> | undefined) => Buffer) => void} modifyBody
+ * @property {(modificationFunc: ModifyBodyFunc) => void} modifyBody
+ * @property {(predicate: (responseHeaders: NodeJS.Dict<string | string[]>) => boolean) => void} bufferResponseIf
  * @property {(response: {statusCode: number, headers: NodeJS.Dict<string>, body: Buffer}) => void} setSyntheticResponse
  * @property {() => RequestInterceptionHandler} build
  *
@@ -22,7 +23,15 @@ import { EventEmitter } from "events";
  * @property {{statusCode: number, headers: NodeJS.Dict<string>, body: Buffer} | undefined} syntheticResponse
  * @property {(headers: NodeJS.Dict<string | string[]> | undefined) => NodeJS.Dict<string | string[]> | undefined} modifyRequestHeaders
  * @property {() => boolean} modifiesResponse
- * @property {(body: Buffer, headers: NodeJS.Dict<string | string[]> | undefined) => Buffer} modifyBody
+ * @property {(responseHeaders: NodeJS.Dict<string | string[]>) => boolean} shouldBufferResponse
+ * @property {(body: Buffer, headers: NodeJS.Dict<string | string[]> | undefined, requestHeaders?: NodeJS.Dict<string | string[]>) => Promise<Buffer>} modifyBody
+ *
+ * @callback ModifyBodyFunc
+ * @param {Buffer} body
+ * @param {NodeJS.Dict<string | string[]> | undefined} headers Response headers.
+ * @param {NodeJS.Dict<string | string[]> | undefined} requestHeaders The request
+ *   headers as forwarded upstream, after modifyRequestHeaders ran.
+ * @returns {Buffer | Promise<Buffer>}
  *
  * @typedef {Object} MalwareBlockedEvent
  * @property {string} packageName
@@ -84,8 +93,10 @@ function createRequestContext(targetUrl, eventEmitter) {
   let syntheticResponse = undefined;
   /** @type {Array<(headers: NodeJS.Dict<string | string[]>) => NodeJS.Dict<string | string[]>>} */
   let reqheaderModificationFuncs = [];
-  /** @type {Array<(body: Buffer, headers: NodeJS.Dict<string | string[]> | undefined) => Buffer>} */
+  /** @type {Array<ModifyBodyFunc>} */
   let modifyBodyFuncs = [];
+  /** @type {Array<(responseHeaders: NodeJS.Dict<string | string[]>) => boolean>} */
+  let bufferPredicates = [];
 
   /**
    * @param {string | undefined} packageName
@@ -150,16 +161,31 @@ function createRequestContext(targetUrl, eventEmitter) {
     /**
      * @param {Buffer} body
      * @param {NodeJS.Dict<string | string[]> | undefined} headers
-     * @returns {Buffer}
+     * @param {NodeJS.Dict<string | string[]>} [requestHeaders]
+     * @returns {Promise<Buffer>}
      */
-    function modifyBody(body, headers) {
+    async function modifyBody(body, headers, requestHeaders) {
       let modifiedBody = body;
 
       for (var func of modifyBodyFuncs) {
-        modifiedBody = func(body, headers);
+        modifiedBody = await func(body, headers, requestHeaders);
       }
 
       return modifiedBody;
+    }
+
+    /**
+     * Whether the proxy should buffer the response body for modifyBody. An
+     * interceptor can rule this out from the response headers alone, so the
+     * response streams through instead of being buffered and decoded.
+     * @param {NodeJS.Dict<string | string[]>} responseHeaders
+     * @returns {boolean}
+     */
+    function shouldBufferResponse(responseHeaders) {
+      return (
+        modifyBodyFuncs.length > 0 &&
+        bufferPredicates.every((predicate) => predicate(responseHeaders))
+      );
     }
 
     // These functions are invoked in the proxy, allowing to apply the configured modifications
@@ -168,6 +194,7 @@ function createRequestContext(targetUrl, eventEmitter) {
       syntheticResponse,
       modifyRequestHeaders: modifyRequestHeaders,
       modifiesResponse: () => modifyBodyFuncs.length > 0,
+      shouldBufferResponse,
       modifyBody,
     };
   }
@@ -179,6 +206,7 @@ function createRequestContext(targetUrl, eventEmitter) {
     blockMinimumAgeRequest: blockMinimumAgeRequestSetup,
     modifyRequestHeaders: (func) => reqheaderModificationFuncs.push(func),
     modifyBody: (func) => modifyBodyFuncs.push(func),
+    bufferResponseIf: (predicate) => bufferPredicates.push(predicate),
     setSyntheticResponse: (response) => { syntheticResponse = response; },
     build,
   };

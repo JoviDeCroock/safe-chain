@@ -28,6 +28,7 @@ describe("mitmRequestHandler", async () => {
         capturedOptions = options;
 
         const listeners = {};
+        let pipedTo;
         const proxyRes = {
           statusCode: 200,
           headers: {
@@ -38,6 +39,9 @@ describe("mitmRequestHandler", async () => {
           on: (event, handler) => {
             listeners[event] = handler;
           },
+          pipe: (destination) => {
+            pipedTo = destination;
+          },
         };
 
         callback(proxyRes);
@@ -46,7 +50,12 @@ describe("mitmRequestHandler", async () => {
           on: () => {},
           write: () => {},
           end: () => {
-            listeners["data"]?.(encoders[upstreamEncoding](upstreamBody));
+            const encoded = encoders[upstreamEncoding](upstreamBody);
+            if (pipedTo) {
+              pipedTo.end(encoded);
+              return;
+            }
+            listeners["data"]?.(encoded);
             listeners["end"]?.();
           },
           destroy: () => {},
@@ -87,6 +96,7 @@ describe("mitmRequestHandler", async () => {
         blockResponse: undefined,
         modifyRequestHeaders: (headers) => headers,
         modifiesResponse: () => true,
+        shouldBufferResponse: () => true,
         modifyBody: () => Buffer.from("rewritten body"),
       }),
     };
@@ -154,6 +164,7 @@ describe("mitmRequestHandler", async () => {
         blockResponse: undefined,
         modifyRequestHeaders: (headers) => headers,
         modifiesResponse: () => true,
+        shouldBufferResponse: () => true,
         // Return the same buffer reference we were given (no modification).
         modifyBody: (body) => body,
       }),
@@ -221,7 +232,11 @@ describe("mitmRequestHandler", async () => {
    * Runs one intercepted request whose upstream response uses `encoding`, and
    * returns the body the interceptor saw plus what was sent to the client.
    */
-  async function interceptWithEncoding(encoding, modifyBody) {
+  async function interceptWithEncoding(
+    encoding,
+    modifyBody,
+    { shouldBufferResponse = () => true, requestHeaders = {} } = {}
+  ) {
     upstreamEncoding = encoding;
     upstreamBody = Buffer.from('{"name":"pkg"}');
     let seenByInterceptor;
@@ -230,9 +245,10 @@ describe("mitmRequestHandler", async () => {
         blockResponse: undefined,
         modifyRequestHeaders: (headers) => headers,
         modifiesResponse: () => true,
-        modifyBody: (body) => {
+        shouldBufferResponse,
+        modifyBody: (body, headers, forwardedRequestHeaders) => {
           seenByInterceptor = body;
-          return modifyBody(body);
+          return modifyBody(body, headers, forwardedRequestHeaders);
         },
       }),
     };
@@ -258,7 +274,7 @@ describe("mitmRequestHandler", async () => {
       capturedHandler(
         {
           url: "/pkg",
-          headers: {},
+          headers: requestHeaders,
           method: "GET",
           on: (event, handler) => event === "end" && handler(),
         },
@@ -301,5 +317,40 @@ describe("mitmRequestHandler", async () => {
     await interceptWithEncoding("gzip", (body) => body);
 
     assert.equal(capturedOptions.headers["accept-encoding"], "identity");
+  });
+
+  it("streams the response without buffering when the interceptor rules it out", async () => {
+    let interceptorCalled = false;
+    const { sent } = await interceptWithEncoding(
+      "gzip",
+      (body) => {
+        interceptorCalled = true;
+        return body;
+      },
+      { shouldBufferResponse: () => false }
+    );
+
+    assert.equal(interceptorCalled, false);
+    assert.equal(sent.headers["content-encoding"], "gzip");
+    assert.deepEqual(sent.body, zlib.gzipSync(Buffer.from('{"name":"pkg"}')));
+  });
+
+  it("passes the forwarded request headers to the interceptor", async () => {
+    let seenRequestHeaders;
+    await interceptWithEncoding(
+      "gzip",
+      (body, _headers, requestHeaders) => {
+        seenRequestHeaders = requestHeaders;
+        return body;
+      },
+      {
+        requestHeaders: {
+          host: "registry.npmjs.org",
+          authorization: "Bearer token",
+        },
+      }
+    );
+
+    assert.deepEqual(seenRequestHeaders, { authorization: "Bearer token" });
   });
 });

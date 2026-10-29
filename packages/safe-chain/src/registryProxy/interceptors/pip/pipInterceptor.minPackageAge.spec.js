@@ -88,14 +88,16 @@ describe("pipInterceptor minimum package age", async () => {
 
     assert.equal(result.modifiesResponse(), true);
 
-    const modifiedBody = result.modifyBody(
-      Buffer.from(`
+    const modifiedBody = (
+      await result.modifyBody(
+        Buffer.from(`
         <a href="https://files.pythonhosted.org/packages/xx/yy/foo_bar-1.0.0.tar.gz">foo_bar-1.0.0.tar.gz</a>
         <a href="https://files.pythonhosted.org/packages/xx/yy/foo_bar-2.0.0.tar.gz">foo_bar-2.0.0.tar.gz</a>
       `),
-      {
-        "content-type": "application/vnd.pypi.simple.v1+html",
-      }
+        {
+          "content-type": "application/vnd.pypi.simple.v1+html",
+        }
+      )
     ).toString("utf8");
 
     assert.ok(modifiedBody.includes("foo_bar-1.0.0.tar.gz"));
@@ -195,14 +197,16 @@ describe("pipInterceptor minimum package age", async () => {
 
     assert.equal(result.modifiesResponse(), true);
 
-    const modifiedBody = result.modifyBody(
-      Buffer.from(`
+    const modifiedBody = (
+      await result.modifyBody(
+        Buffer.from(`
         <a href="https://files.pythonhosted.org/packages/xx/yy/foo_bar-1.0.0.tar.gz">foo_bar-1.0.0.tar.gz</a>
         <a href="https://files.pythonhosted.org/packages/xx/yy/foo_bar-2.0.0.tar.gz">foo_bar-2.0.0.tar.gz</a>
       `),
-      {
-        "content-type": "application/vnd.pypi.simple.v1+html",
-      }
+        {
+          "content-type": "application/vnd.pypi.simple.v1+html",
+        }
+      )
     ).toString("utf8");
 
     assert.ok(modifiedBody.includes("foo_bar-1.0.0.tar.gz"));
