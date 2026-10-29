@@ -3,6 +3,7 @@ import { generateCertForHost } from "./certUtils.js";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { ui } from "../environment/userInteraction.js";
 import { decodeBody, supportedAcceptEncoding } from "./decodeBody.js";
+import { FailClosedError } from "./failClosedError.js";
 import { omitHeaders } from "./http-utils.js";
 
 /**
@@ -276,6 +277,14 @@ function createProxyRequest(hostname, port, req, res, requestHandler) {
           res.end(modifiedBuffer);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
+          if (err instanceof FailClosedError) {
+            ui.writeError(
+              `Safe-chain: Could not check the response for ${req.url} for ${hostname}, answering 502: ${message}`
+            );
+            res.writeHead(502);
+            res.end("Bad Gateway");
+            return;
+          }
           ui.writeError(
             `Safe-chain: Failed to process response body for ${req.url} for ${hostname}, forwarding it unmodified: ${message}`
           );

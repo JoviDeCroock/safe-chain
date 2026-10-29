@@ -4,21 +4,6 @@ import { clearCachingHeaders, getHeaderValueAsString } from "../../http-utils.js
 import { recordSuppressedVersion } from "../suppressedVersionsState.js";
 
 /**
- * @param {NodeJS.Dict<string | string[]>} headers
- * @returns {NodeJS.Dict<string | string[]>}
- */
-export function modifyNpmInfoRequestHeaders(headers) {
-  const accept = getHeaderValueAsString(headers, "accept");
-  if (accept?.includes("application/vnd.npm.install-v1+json")) {
-    // The npm registry sometimes serves a more compact format that lacks
-    // the time metadata we need to filter out too new packages.
-    // Force the registry to return the full metadata by changing the Accept header.
-    headers["accept"] = "application/json";
-  }
-  return headers;
-}
-
-/**
  * @param {string} url
  * @returns {boolean}
  */

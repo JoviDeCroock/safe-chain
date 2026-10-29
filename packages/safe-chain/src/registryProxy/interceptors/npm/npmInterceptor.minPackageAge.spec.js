@@ -149,6 +149,36 @@ describe("npmInterceptor minimum package age", async () => {
     });
   }
 
+  it("keeps the client's Accept header for package info requests", async () => {
+    const url = "https://registry.npmjs.org/lodash";
+    const requestHandler = await npmInterceptorForUrl(url).handleRequest(url);
+
+    const headers = requestHandler.modifyRequestHeaders({
+      accept: "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8",
+    });
+
+    assert.equal(
+      headers.accept,
+      "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8"
+    );
+  });
+
+  it("streams package info responses last modified before the cutoff", async () => {
+    const url = "https://registry.npmjs.org/lodash";
+    const requestHandler = await npmInterceptorForUrl(url).handleRequest(url);
+    const lastModified = (hoursAgo) =>
+      new Date(Date.now() - hoursAgo * 3600 * 1000).toUTCString();
+
+    assert.equal(
+      requestHandler.shouldBufferResponse({ "last-modified": lastModified(72) }),
+      false
+    );
+    assert.equal(
+      requestHandler.shouldBufferResponse({ "last-modified": lastModified(1) }),
+      true
+    );
+  });
+
   it("Should remove packages older than the treshold", async () => {
     minimumPackageAgeSettings = 5;
     const packageUrl = "https://registry.npmjs.org/lodash";

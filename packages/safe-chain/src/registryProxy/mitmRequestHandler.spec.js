@@ -1,6 +1,7 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert";
 import zlib from "node:zlib";
+import { FailClosedError } from "./failClosedError.js";
 
 describe("mitmRequestHandler", async () => {
   let capturedHandler;
@@ -269,6 +270,7 @@ describe("mitmRequestHandler", async () => {
       const res = {
         headersSent: false,
         writeHead: (statusCode, headers) => {
+          sent.statusCode = statusCode;
           sent.headers = headers;
         },
         end: (body) => {
@@ -402,5 +404,14 @@ describe("mitmRequestHandler", async () => {
     );
 
     assert.equal(seenRequest.url, "https://registry.npmjs.org/pkg?write=true");
+  });
+
+  it("answers 502 instead of forwarding the body when the check fails closed", async () => {
+    const { sent } = await interceptWithEncoding("gzip", () => {
+      throw new FailClosedError("full document unavailable");
+    });
+
+    assert.equal(sent.statusCode, 502);
+    assert.equal(sent.body, "Bad Gateway");
   });
 });

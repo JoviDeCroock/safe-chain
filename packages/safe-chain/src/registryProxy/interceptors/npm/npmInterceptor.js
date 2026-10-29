@@ -1,13 +1,14 @@
 import { getNpmCustomRegistries, skipMinimumPackageAge } from "../../../config/settings.js";
 import { isMalwarePackage } from "../../../scanning/audit/index.js";
 import { interceptRequests } from "../interceptorBuilder.js";
+import { isPackageInfoUrl } from "./modifyNpmInfo.js";
 import {
-  isPackageInfoUrl,
-  modifyNpmInfoRequestHeaders,
-  modifyNpmInfoResponse,
-} from "./modifyNpmInfo.js";
+  filterPackageMetadata,
+  needsMetadataFiltering,
+} from "./filterPackageMetadata.js";
 import { parseNpmPackageUrl } from "./parseNpmPackageUrl.js";
 import { openMinimumPackageAgeChecker } from "../minimumPackageAgeChecker.js";
+import { getMinimumPackageAgeCutoff } from "../../../scanning/minimumPackageAgeCutoff.js";
 
 const knownJsRegistries = [
   "registry.npmjs.org",
@@ -56,9 +57,19 @@ function buildNpmInterceptor(registry) {
 
     if (isPackageInfoUrl(reqContext.targetUrl)) {
       const checker = await openMinimumPackageAgeChecker();
-      reqContext.modifyRequestHeaders(modifyNpmInfoRequestHeaders);
-      reqContext.modifyBody((body, headers) =>
-        modifyNpmInfoResponse(body, headers, checker)
+      const cutoff = getMinimumPackageAgeCutoff();
+      reqContext.bufferResponseIf((headers) =>
+        needsMetadataFiltering(headers, cutoff)
+      );
+      reqContext.modifyBody((body, headers, requestHeaders) =>
+        filterPackageMetadata({
+          targetUrl: reqContext.targetUrl,
+          body,
+          headers,
+          requestHeaders,
+          checker,
+          cutoff,
+        })
       );
       return;
     }
