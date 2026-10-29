@@ -35,6 +35,10 @@ export function createMinimumPackageAgeChecker({
   newPackagesDatabase,
   safePatchesDatabase,
 }) {
+  // Resolved once per checker: the threshold comes from the config file, and
+  // isTooNewByReleaseDate runs for every version in a metadata response.
+  const cutoff = getMinimumPackageAgeCutoff();
+
   /**
    * @param {string | undefined} packageName
    * @returns {boolean}
@@ -72,7 +76,7 @@ export function createMinimumPackageAgeChecker({
    * @returns {boolean}
    */
   function isTooNewByReleaseDate(name, version, timestamp) {
-    if (!(new Date(timestamp) > getMinimumPackageAgeCutoff())) {
+    if (!(new Date(timestamp) > cutoff)) {
       // Common case: most versions were not published within the age window.
       return false;
     }
